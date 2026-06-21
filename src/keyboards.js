@@ -1,0 +1,57 @@
+export function mainMenuKeyboard() {
+  return {
+    reply_markup: {
+      resize_keyboard: true,
+      keyboard: [
+        ['🌙 Мой мини-профиль'],
+        ['❤️ Совместимость', '🧘 Медитация дня'],
+        ['🌌 Полный астропортрет'],
+        ['💳 Оплата и поддержка']
+      ]
+    }
+  };
+}
+
+export function timeKnowledgeKeyboard() {
+  return {
+    reply_markup: {
+      resize_keyboard: true,
+      one_time_keyboard: true,
+      keyboard: [['Да, знаю время'], ['Не знаю время']]
+    }
+  };
+}
+
+export function profileActionsKeyboard() {
+  return {
+    reply_markup: {
+      resize_keyboard: true,
+      keyboard: [
+        ['Исправить данные'],
+        ['Пройти анкету заново'],
+        ['Удалить мои данные'],
+        ['Вернуться в меню']
+      ]
+    }
+  };
+}
+
+export function editProfileKeyboard() {
+  return {
+    reply_markup: {
+      resize_keyboard: true,
+      keyboard: [['Дату рождения'], ['Время рождения'], ['Город рождения'], ['Вернуться в меню']]
+    }
+  };
+}
+
+export function productKeyboard(productId) {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Оплатить Stars ⭐', callback_data: `buy:${productId}` }],
+        [{ text: 'Как купить Stars картой?', callback_data: 'stars_help' }]
+      ]
+    }
+  };
+}
