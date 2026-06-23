@@ -102,7 +102,7 @@ export function createBot(config) {
 
   bot.catch((error, ctx) => {
     console.error('Bot error', error);
-    return ctx.reply('Ой, что-то пошло не так. Попробуй ещё раз через минутку или напиши /help 🌙').catch(() => undefined);
+    return ctx.reply('Ой, что-то пошло не так. Попробуй ещё раз через минутку или напиши /help — я помогу вернуться в меню 🌙').catch(() => undefined);
   });
 
   return bot;
@@ -130,7 +130,7 @@ async function handleText(ctx, config) {
 
   return ctx.reply(`Я рядом 🌙
 
-Напиши номер раздела или выбери кнопку в меню.`, mainMenuKeyboard());
+Напиши номер раздела или выбери кнопку в меню — и спокойно продолжим.`, mainMenuKeyboard());
 }
 
 async function handleStatefulText(ctx, currentState, normalized) {
@@ -204,13 +204,13 @@ async function handleTimeKnowledge(ctx, data, normalized) {
 
     await ctx.reply(`Ничего страшного 🌙
 
-Я сделаю базовый астропрофиль по дате рождения. Без точного времени он будет чуть менее детальным, но всё равно покажет твою основную энергию.`);
+Я соберу базовый мини-профиль по дате рождения. Без точного времени он будет чуть проще, но всё равно сможет показать общий ритм и пару мягких подсказок.`);
     return ctx.reply(`Введи город рождения.
 
 Например: Москва`, { reply_markup: { remove_keyboard: true } });
   }
 
-  return ctx.reply('Ответь, пожалуйста: «Да, знаю время» или «Не знаю время».', timeKnowledgeKeyboard());
+  return ctx.reply('Ответь, пожалуйста, одним из вариантов: «Да, знаю время» или «Не знаю время».', timeKnowledgeKeyboard());
 }
 
 async function handleBirthTime(ctx, data) {
@@ -231,7 +231,7 @@ async function handleBirthTime(ctx, data) {
 async function handleBirthCity(ctx, data) {
   const city = String(ctx.message.text || '').trim();
   if (city.length < 2 || /^\d+$/.test(city)) {
-    return ctx.reply('Введи город рождения текстом. Например: Москва');
+    return ctx.reply('Введи город рождения текстом, пожалуйста. Например: Москва');
   }
 
   const [year, month, day] = data.birth_date.split('-').map(Number);
@@ -285,7 +285,7 @@ async function handleProfileAction(ctx, normalized) {
 
 Я больше не буду использовать эти данные.
 
-Если захочешь собрать профиль заново, нажми /start или выбери «Мой мини-профиль».`);
+Если захочешь собрать профиль заново, нажми /start или выбери «Мой мини-профиль». Всё можно начать спокойно с начала.`);
     return ctx.reply(MAIN_MENU, mainMenuKeyboard());
   }
 
@@ -294,7 +294,7 @@ async function handleProfileAction(ctx, normalized) {
     return ctx.reply(MAIN_MENU, mainMenuKeyboard());
   }
 
-  return ctx.reply('Выбери действие: 1, 2, 3 или 4.', profileActionsKeyboard());
+  return ctx.reply('Выбери, пожалуйста, действие: 1, 2, 3 или 4.', profileActionsKeyboard());
 }
 
 async function handleEditChoice(ctx, normalized) {
@@ -318,7 +318,7 @@ async function handleEditChoice(ctx, normalized) {
     return ctx.reply(MAIN_MENU, mainMenuKeyboard());
   }
 
-  return ctx.reply('Выбери, что исправить: 1, 2 или 3.', editProfileKeyboard());
+  return ctx.reply('Выбери, пожалуйста, что исправить: 1, 2 или 3.', editProfileKeyboard());
 }
 
 async function handleEditBirthDate(ctx) {
@@ -362,7 +362,7 @@ async function handleEditTimeKnowledge(ctx, normalized) {
     return openProfile(ctx);
   }
 
-  return ctx.reply('Ответь, пожалуйста: «Да, знаю время» или «Не знаю время».', timeKnowledgeKeyboard());
+  return ctx.reply('Ответь, пожалуйста, одним из вариантов: «Да, знаю время» или «Не знаю время».', timeKnowledgeKeyboard());
 }
 
 async function handleEditBirthTime(ctx) {
@@ -389,7 +389,7 @@ async function handleEditCity(ctx) {
 
   const city = String(ctx.message.text || '').trim();
   if (city.length < 2 || /^\d+$/.test(city)) {
-    return ctx.reply('Введи город рождения текстом. Например: Москва');
+    return ctx.reply('Введи город рождения текстом, пожалуйста. Например: Москва');
   }
 
   saveProfile(ctx.from.id, {
@@ -404,7 +404,7 @@ async function handleEditCity(ctx) {
 
 async function startCompatibilityFlow(ctx) {
   setState(ctx.from.id, STATES.COMPAT_AWAIT_FIRST_DATE, {});
-  return ctx.reply(`❤️ Давай посмотрим совместимость мягко и без драматичных предсказаний.
+  return ctx.reply(`❤️ Давай посмотрим совместимость спокойно и без драматичных прогнозов.
 
 Введи дату рождения первого человека в формате ДД.ММ.ГГГГ.
 
@@ -440,9 +440,9 @@ async function handleCompatibilitySecondDate(ctx, data) {
   clearState(ctx.from.id);
 
   await ctx.reply(generateMiniCompatibility(data.first_sign, secondSign));
-  await ctx.reply(`Хочешь открыть полный разбор совместимости? 🌙
+  await ctx.reply(`Если хочется посмотреть на пару чуть глубже, можно открыть полный разбор совместимости 🌙
 
-В мини-разборе я показала только общую энергию пары. Полная совместимость раскрывает глубже: как вы сближаетесь, где можете не слышать друг друга и что помогает отношениям становиться спокойнее.
+В мини-разборе я показала только общий ритм пары. Полная совместимость мягче раскрывает, как вы сближаетесь, где можете не слышать друг друга и что помогает отношениям становиться спокойнее.
 
 ⭐ Полная совместимость — ${PRODUCTS.compatibility_full.stars} Stars`, productKeyboard(PRODUCTS.compatibility_full.id));
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
@@ -483,7 +483,7 @@ async function openPersonalMeditation(ctx) {
 
 async function buyProduct(ctx, productId) {
   const product = getProduct(productId);
-  if (!product) return ctx.reply('Не нашла такой продукт. Вернёмся в меню 🌙', mainMenuKeyboard());
+  if (!product) return ctx.reply('Не нашла такой раздел. Давай вернёмся в меню 🌙', mainMenuKeyboard());
 
   if (hasPurchase(ctx.from.id, productId)) {
     await ctx.reply('Этот раздел уже открыт для тебя 🌙');
@@ -520,19 +520,19 @@ async function handleSuccessfulPayment(ctx) {
   const product = getProduct(payload?.p);
 
   if (!product) {
-    await ctx.reply('Платёж прошёл, но я не смогла определить продукт. Напиши, пожалуйста, в /paysupport.');
+    await ctx.reply('Платёж прошёл, но я не смогла определить, какой раздел открыть. Напиши, пожалуйста, в /paysupport — спокойно разберёмся.');
     return;
   }
 
   if (payment.currency !== 'XTR' || payment.total_amount !== product.stars) {
-    await ctx.reply('Платёж получен, но сумма выглядит необычно. Напиши, пожалуйста, в /paysupport.');
+    await ctx.reply('Платёж получен, но сумма выглядит необычно. Напиши, пожалуйста, в /paysupport — я помогу проверить покупку.');
     return;
   }
 
   recordPurchase(ctx.from.id, payment, product.id);
   await ctx.reply(`Готово, оплата прошла 🌙
 
-Открываю: ${product.title}`);
+Открываю для тебя: ${product.title}`);
   await deliverProduct(ctx, product.id);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
@@ -559,7 +559,7 @@ async function deliverProduct(ctx, productId) {
     return ctx.reply(generatePersonalMeditation(profile));
   }
 
-  return ctx.reply('Не нашла этот раздел. Напиши /help 🌙');
+  return ctx.reply('Не нашла этот раздел. Напиши /help — вернёмся в меню 🌙');
 }
 
 function showHelp(ctx) {
@@ -580,19 +580,19 @@ function requiresProfile(productId) {
 }
 
 function miniProfileUpsellText() {
-  return `Хочешь увидеть свой полный астропортрет? 🌌
+  return `Если мини-профиль откликнулся, можно открыть полный астропортрет 🌌
 
-Сейчас я показала только первый слой — твою солнечную энергию.
+Сейчас я показала только первый слой — общий ритм по дате рождения.
 
-Полный разбор раскрывает глубже: как ты чувствуешь, любишь, устаёшь, восстанавливаешься и какие внутренние сценарии могут повторяться.
+В полном астропортрете можно посмотреть чуть подробнее: как ты чувствуешь, любишь, устаёшь, восстанавливаешься и где иногда теряешь контакт с собой.
 
 Внутри полного астропортрета:
 — эмоциональный профиль
 — любовь и близость
 — сильные стороны
-— денежный стиль
-— зона внутреннего напряжения
-— повторяющиеся сценарии
+— реализация и деньги
+— где может копиться напряжение
+— привычные реакции, которые забирают силы
 — мягкая практика на ближайшие дни
 
 ⭐ Полный астропортрет — ${PRODUCTS.astro_full.stars} Stars`;
@@ -602,9 +602,9 @@ function termsText(supportUsername) {
   const support = supportUsername ? `\n\nПоддержка: ${supportUsername}` : '';
   return `Условия использования 🌙
 
-Разборы в боте предназначены для самопознания и развлечения. Они не являются медицинской, финансовой, юридической или психологической консультацией.
+Разборы в боте — это тексты для самопознания, интереса к себе и небольшого личного ритуала. Они не являются медицинской, финансовой, юридической или психологической консультацией.
 
-Платные цифровые продукты открываются после успешной оплаты через Telegram Stars. Если оплата прошла, но продукт не открылся, напиши в /paysupport.${support}`;
+Платные цифровые продукты открываются после успешной оплаты через Telegram Stars. Если оплата прошла, но раздел не открылся, напиши в /paysupport.${support}`;
 }
 
 function isStartText(text) {
