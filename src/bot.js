@@ -54,6 +54,7 @@ import {
   buildPersonalMeditation,
   paymentSuccessText
 } from './paidContent.js';
+import { registerAdminCommands } from './admin.js';
 
 const STATES = {
   AWAIT_BIRTH_DATE: 'await_birth_date',
@@ -90,6 +91,7 @@ export function createBot(config) {
   bot.command('suppport', (ctx) => ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard()));
   bot.command('terms', (ctx) => ctx.reply(termsText(config.supportUsername), mainMenuKeyboard()));
   bot.command('privacy', (ctx) => ctx.reply(privacyText(), mainMenuKeyboard()));
+  registerAdminCommands(bot, config);
 
   bot.action('stars_help', async (ctx) => {
     await ctx.answerCbQuery();
