@@ -13,6 +13,12 @@ import {
 } from '../src/db.js';
 import { paymentConsentKeyboard, productKeyboard } from '../src/keyboards.js';
 import { buildStarsInvoice, parsePaymentPayload } from '../src/payments.js';
+import {
+  buildFullAstroPortrait,
+  buildFullCompatibilityReport,
+  buildPersonalMeditation,
+  paymentSuccessText
+} from '../src/paidContent.js';
 import { PRODUCTS } from '../src/products.js';
 import {
   PRIVACY_VERSION,
@@ -29,6 +35,23 @@ const USER = {
   id: 1001,
   first_name: 'Луна',
   username: 'moon_user'
+};
+
+const TAURUS_PROFILE = {
+  birth_date: '1992-05-05',
+  birth_date_display: '05.05.1992',
+  birth_time: null,
+  birth_time_unknown: true,
+  birth_city: 'Москва',
+  zodiac: 'Телец',
+  is_cusp: false
+};
+
+const TAURUS_AQUARIUS_DRAFT = {
+  first_birth_date: '1992-05-05',
+  second_birth_date: '1993-02-01',
+  first_sign: 'Телец',
+  second_sign: 'Водолей'
 };
 
 test('service texts include terms, privacy, support and help commands', () => {
@@ -139,6 +162,58 @@ test('successful payment records purchase and existing purchase can be detected'
   }, 'astro_full');
 
   assert.equal(hasPurchase(USER.id, 'astro_full'), true);
+});
+
+test('paid astro portrait contains full paid sections and no placeholder', () => {
+  const messages = buildFullAstroPortrait(TAURUS_PROFILE);
+  const text = messages.join('\n\n');
+
+  assert.ok(messages.length > 1);
+  assert.match(text, /Твой полный астропортрет/);
+  assert.match(text, /Твой внутренний ритм/);
+  assert.match(text, /Как ты чувствуешь и реагируешь/);
+  assert.match(text, /Любовь и близость/);
+  assert.match(text, /Деньги, цели и реализация/);
+  assert.match(text, /Один вопрос для заметок/);
+  assert.doesNotMatch(text, /скоро будет доступно|пока оплата готовится|полный разбор будет выглядеть/i);
+});
+
+test('paid compatibility contains full paid sections for both signs', () => {
+  const messages = buildFullCompatibilityReport(TAURUS_AQUARIUS_DRAFT);
+  const text = messages.join('\n\n');
+
+  assert.ok(messages.length > 1);
+  assert.match(text, /Полная совместимость/);
+  assert.match(text, /Телец/);
+  assert.match(text, /Водолей/);
+  assert.match(text, /Общая атмосфера пары/);
+  assert.match(text, /Что может притягивать/);
+  assert.match(text, /Как каждый проявляет близость/);
+  assert.match(text, /Вопрос для честного разговора/);
+  assert.doesNotMatch(text, /скоро будет доступно|пока оплата готовится|полный разбор будет выглядеть/i);
+});
+
+test('paid meditation contains a complete 5-7 minute practice adapted by element', () => {
+  const messages = buildPersonalMeditation(TAURUS_PROFILE);
+  const text = messages.join('\n\n');
+
+  assert.ok(messages.length > 1);
+  assert.match(text, /Персональная медитация/);
+  assert.match(text, /зем/i);
+  assert.match(text, /Настрой перед практикой/);
+  assert.match(text, /Дыхание/);
+  assert.match(text, /Расслабление тела/);
+  assert.match(text, /Вопрос для дневника/);
+  assert.match(text, /Маленькое действие на день/);
+  assert.doesNotMatch(text, /скоро будет доступно|пока оплата готовится|полный разбор будет выглядеть/i);
+});
+
+test('successful payment message opens real paid material tone', () => {
+  const text = paymentSuccessText(PRODUCTS.astro_full);
+
+  assert.match(text, /Оплата прошла/);
+  assert.match(text, /Полный астропортрет/);
+  assert.match(text, /спокойное знакомство с собой/);
 });
 
 function initTestDb() {
