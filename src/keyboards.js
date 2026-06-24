@@ -55,3 +55,18 @@ export function productKeyboard(productId) {
     }
   };
 }
+
+export function paymentConsentKeyboard(productId) {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Согласна, перейти к оплате', callback_data: `confirm_buy:${productId}` }],
+        [
+          { text: 'Открыть условия', callback_data: 'terms_info' },
+          { text: 'Приватность', callback_data: 'privacy_info' }
+        ],
+        [{ text: 'Вернуться в меню', callback_data: 'main_menu' }]
+      ]
+    }
+  };
+}

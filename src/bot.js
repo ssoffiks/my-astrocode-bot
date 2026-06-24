@@ -7,6 +7,7 @@ import {
   getState,
   hasPurchase,
   listPurchases,
+  recordUserConsent,
   recordPurchase,
   saveCompatibilityDraft,
   saveProfile,
@@ -14,9 +15,11 @@ import {
   upsertUser
 } from './db.js';
 import { PRODUCTS, getProduct } from './products.js';
+import { buildStarsInvoice, parsePaymentPayload } from './payments.js';
 import {
   editProfileKeyboard,
   mainMenuKeyboard,
+  paymentConsentKeyboard,
   productKeyboard,
   profileActionsKeyboard,
   timeKnowledgeKeyboard
@@ -24,14 +27,19 @@ import {
 import {
   FIRST_MESSAGE,
   MAIN_MENU,
+  PRIVACY_VERSION,
+  TERMS_VERSION,
   fullAstroSaleText,
   fullCompatibilitySaleText,
   helpText,
   meditationOfDayText,
+  paymentConsentText,
   paymentInfoText,
   paySupportText,
   personalMeditationSaleText,
-  starsHelpText
+  privacyText,
+  starsHelpText,
+  termsText
 } from './texts.js';
 import { parseBirthDate, parseBirthTime, normalizeText } from './utils/dates.js';
 import { getZodiacFromIso, isCuspDate } from './astro/zodiac.js';
@@ -75,17 +83,41 @@ export function createBot(config) {
   bot.command('meditation', (ctx) => openMeditation(ctx));
   bot.command('help', (ctx) => showHelp(ctx));
   bot.command('paysupport', (ctx) => ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard()));
+  bot.command('support', (ctx) => ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard()));
+  bot.command('suppport', (ctx) => ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard()));
   bot.command('terms', (ctx) => ctx.reply(termsText(config.supportUsername), mainMenuKeyboard()));
+  bot.command('privacy', (ctx) => ctx.reply(privacyText(), mainMenuKeyboard()));
 
   bot.action('stars_help', async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.reply(starsHelpText());
   });
 
+  bot.action('terms_info', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(termsText(config.supportUsername), mainMenuKeyboard());
+  });
+
+  bot.action('privacy_info', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(privacyText(), mainMenuKeyboard());
+  });
+
+  bot.action('main_menu', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(MAIN_MENU, mainMenuKeyboard());
+  });
+
   bot.action(/^buy:(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const productId = ctx.match[1];
     await buyProduct(ctx, productId);
+  });
+
+  bot.action(/^confirm_buy:(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const productId = ctx.match[1];
+    await confirmProductPayment(ctx, productId);
   });
 
   bot.on('pre_checkout_query', async (ctx) => {
@@ -113,6 +145,12 @@ async function handleText(ctx, config) {
   const normalized = normalizeText(text);
 
   if (isStartText(normalized)) return startProfileFlow(ctx);
+  if (normalized === '/terms') return ctx.reply(termsText(config.supportUsername), mainMenuKeyboard());
+  if (normalized === '/privacy') return ctx.reply(privacyText(), mainMenuKeyboard());
+  if (normalized === '/paysupport' || normalized === '/support' || normalized === '/suppport') {
+    return ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard());
+  }
+  if (normalized === '/help') return showHelp(ctx);
 
   const state = getState(ctx.from.id);
   if (state) {
@@ -500,18 +538,35 @@ async function buyProduct(ctx, productId) {
     return startCompatibilityFlow(ctx);
   }
 
-  const payload = JSON.stringify({ p: productId, u: ctx.from.id, t: Date.now() });
+  return ctx.reply(paymentConsentText(), paymentConsentKeyboard(productId));
+}
 
-  return ctx.telegram.callApi('sendInvoice', {
-    chat_id: ctx.chat.id,
-    title: product.title,
-    description: product.description,
-    payload,
-    provider_token: '',
-    currency: 'XTR',
-    prices: [{ label: `${product.stars} Stars`, amount: product.stars }],
-    start_parameter: `pay_${productId}`
-  });
+async function confirmProductPayment(ctx, productId) {
+  const product = getProduct(productId);
+  if (!product) return ctx.reply('Не нашла такой раздел. Давай вернёмся в меню 🌙', mainMenuKeyboard());
+
+  if (hasPurchase(ctx.from.id, productId)) {
+    await ctx.reply('Этот раздел уже открыт для тебя 🌙');
+    return deliverProduct(ctx, productId);
+  }
+
+  if (requiresProfile(productId) && !getProfile(ctx.from.id)) {
+    await ctx.reply('Чтобы открыть этот раздел, сначала соберём твой мини-профиль 🌙');
+    return startProfileFlow(ctx);
+  }
+
+  if (productId === PRODUCTS.compatibility_full.id && !getCompatibilityDraft(ctx.from.id)) {
+    await ctx.reply('Для полной совместимости сначала нужны две даты рождения. Начнём с короткой анкеты ❤️');
+    return startCompatibilityFlow(ctx);
+  }
+
+  recordUserConsent(ctx.from.id, TERMS_VERSION, PRIVACY_VERSION);
+
+  return ctx.telegram.callApi('sendInvoice', buildStarsInvoice({
+    chatId: ctx.chat.id,
+    product,
+    telegramId: ctx.from.id
+  }));
 }
 
 async function handleSuccessfulPayment(ctx) {
@@ -567,14 +622,6 @@ function showHelp(ctx) {
   return ctx.reply(helpText(), mainMenuKeyboard());
 }
 
-function parsePaymentPayload(payload) {
-  try {
-    return JSON.parse(payload);
-  } catch {
-    return null;
-  }
-}
-
 function requiresProfile(productId) {
   return productId === PRODUCTS.astro_full.id || productId === PRODUCTS.meditation_personal.id;
 }
@@ -596,15 +643,6 @@ function miniProfileUpsellText() {
 — мягкая практика на ближайшие дни
 
 ⭐ Полный астропортрет — ${PRODUCTS.astro_full.stars} Stars`;
-}
-
-function termsText(supportUsername) {
-  const support = supportUsername ? `\n\nПоддержка: ${supportUsername}` : '';
-  return `Условия использования 🌙
-
-Разборы в боте — это тексты для самопознания, интереса к себе и небольшого личного ритуала. Они не являются медицинской, финансовой, юридической или психологической консультацией.
-
-Платные цифровые продукты открываются после успешной оплаты через Telegram Stars. Если оплата прошла, но раздел не открылся, напиши в /paysupport.${support}`;
 }
 
 function isStartText(text) {
