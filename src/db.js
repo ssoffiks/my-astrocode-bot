@@ -64,6 +64,15 @@ export function initDb(databasePath) {
       FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS user_consents (
+      telegram_id INTEGER NOT NULL,
+      terms_version TEXT NOT NULL,
+      privacy_version TEXT NOT NULL,
+      accepted_at TEXT NOT NULL,
+      PRIMARY KEY (telegram_id, terms_version, privacy_version),
+      FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_purchases_user_product
       ON purchases(telegram_id, product_id);
   `);
@@ -208,6 +217,26 @@ export function listPurchases(telegramId) {
     WHERE telegram_id = ?
     ORDER BY created_at DESC
   `).all(telegramId);
+}
+
+export function recordUserConsent(telegramId, termsVersion, privacyVersion) {
+  const now = nowIso();
+  getDb().prepare(`
+    INSERT INTO user_consents (telegram_id, terms_version, privacy_version, accepted_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(telegram_id, terms_version, privacy_version) DO UPDATE SET
+      accepted_at = excluded.accepted_at
+  `).run(telegramId, termsVersion, privacyVersion, now);
+
+  return getUserConsent(telegramId, termsVersion, privacyVersion);
+}
+
+export function getUserConsent(telegramId, termsVersion, privacyVersion) {
+  return getDb().prepare(`
+    SELECT telegram_id, terms_version, privacy_version, accepted_at
+    FROM user_consents
+    WHERE telegram_id = ? AND terms_version = ? AND privacy_version = ?
+  `).get(telegramId, termsVersion, privacyVersion) || null;
 }
 
 function decorateProfile(row) {
