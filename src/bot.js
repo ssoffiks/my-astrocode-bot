@@ -44,13 +44,16 @@ import {
 import { parseBirthDate, parseBirthTime, normalizeText } from './utils/dates.js';
 import { getZodiacFromIso, isCuspDate } from './astro/zodiac.js';
 import {
-  generateFullAstro,
-  generateFullCompatibility,
   generateMiniCompatibility,
   generateMiniProfile,
-  generatePersonalMeditation,
   generateSavedProfile
 } from './astro/generators.js';
+import {
+  buildFullAstroPortrait,
+  buildFullCompatibilityReport,
+  buildPersonalMeditation,
+  paymentSuccessText
+} from './paidContent.js';
 
 const STATES = {
   AWAIT_BIRTH_DATE: 'await_birth_date',
@@ -585,9 +588,7 @@ async function handleSuccessfulPayment(ctx) {
   }
 
   recordPurchase(ctx.from.id, payment, product.id);
-  await ctx.reply(`Готово, оплата прошла 🌙
-
-Открываю для тебя: ${product.title}`);
+  await ctx.reply(paymentSuccessText(product));
   await deliverProduct(ctx, product.id);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
@@ -596,25 +597,31 @@ async function deliverProduct(ctx, productId) {
   if (productId === PRODUCTS.astro_full.id) {
     const profile = getProfile(ctx.from.id);
     if (!profile) return startProfileFlow(ctx);
-    return ctx.reply(generateFullAstro(profile));
+    return replyMessages(ctx, buildFullAstroPortrait(profile));
   }
 
   if (productId === PRODUCTS.compatibility_full.id) {
     const draft = getCompatibilityDraft(ctx.from.id);
     if (!draft) {
-      await ctx.reply('Для полного разбора совместимости сначала нужны две даты рождения ❤️');
+      await ctx.reply('Для полной совместимости сначала нужны две даты рождения. Давай введём их заново — так я смогу открыть не пустой шаблон, а материал именно для вашей пары ❤️');
       return startCompatibilityFlow(ctx);
     }
-    return ctx.reply(generateFullCompatibility(draft.first_sign, draft.second_sign));
+    return replyMessages(ctx, buildFullCompatibilityReport(draft));
   }
 
   if (productId === PRODUCTS.meditation_personal.id) {
     const profile = getProfile(ctx.from.id);
     if (!profile) return startProfileFlow(ctx);
-    return ctx.reply(generatePersonalMeditation(profile));
+    return replyMessages(ctx, buildPersonalMeditation(profile));
   }
 
   return ctx.reply('Не нашла этот раздел. Напиши /help — вернёмся в меню 🌙');
+}
+
+async function replyMessages(ctx, messages) {
+  for (const message of messages) {
+    await ctx.reply(message);
+  }
 }
 
 function showHelp(ctx) {
