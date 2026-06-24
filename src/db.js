@@ -219,6 +219,165 @@ export function listPurchases(telegramId) {
   `).all(telegramId);
 }
 
+export function getAdminStats() {
+  const hasPurchases = tableExists('purchases');
+  const hasPurchaseProductId = hasPurchases && columnExists('purchases', 'product_id');
+  const hasPurchaseAmount = hasPurchases && columnExists('purchases', 'amount');
+  const hasPurchaseCurrency = hasPurchases && columnExists('purchases', 'currency');
+  const purchaseStarsExpression = hasPurchaseAmount
+    ? hasPurchaseCurrency
+      ? "CASE WHEN currency = 'XTR' THEN amount ELSE 0 END"
+      : 'amount'
+    : '0';
+
+  const totalUsers = getScalar('SELECT COUNT(*) FROM users');
+  const usersWithProfile = getScalar('SELECT COUNT(*) FROM profiles');
+  const totalPurchases = hasPurchases ? getScalar('SELECT COUNT(*) FROM purchases') : 0;
+  const totalStars = hasPurchases
+    ? getScalar(`SELECT COALESCE(SUM(${purchaseStarsExpression}), 0) FROM purchases`)
+    : 0;
+
+  const productRows = hasPurchaseProductId
+    ? getDb().prepare(`
+      SELECT
+        product_id,
+        COUNT(*) AS purchases,
+        COALESCE(SUM(${purchaseStarsExpression}), 0) AS stars
+      FROM purchases
+      GROUP BY product_id
+      ORDER BY product_id
+    `).all()
+    : [];
+
+  const hasPurchaseDates = hasPurchases && columnExists('purchases', 'created_at');
+  const dateStats = hasPurchaseDates
+    ? {
+        todayPurchases: getScalar("SELECT COUNT(*) FROM purchases WHERE date(created_at) = date('now')"),
+        last7DaysPurchases: getScalar("SELECT COUNT(*) FROM purchases WHERE datetime(created_at) >= datetime('now', '-7 days')"),
+        last7DaysStars: getScalar(`SELECT COALESCE(SUM(${purchaseStarsExpression}), 0) FROM purchases WHERE datetime(created_at) >= datetime('now', '-7 days')`)
+      }
+    : null;
+
+  return {
+    users: {
+      total: totalUsers,
+      withProfile: usersWithProfile
+    },
+    purchases: {
+      total: totalPurchases,
+      stars: totalStars,
+      byProduct: productRows
+    },
+    dateStats
+  };
+}
+
+export function getRecentPurchases(limit = 10) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 50);
+
+  if (!tableExists('purchases')) return [];
+
+  const hasId = columnExists('purchases', 'id');
+  const hasProductId = columnExists('purchases', 'product_id');
+  const hasAmount = columnExists('purchases', 'amount');
+  const hasCurrency = columnExists('purchases', 'currency');
+  const hasCreatedAt = columnExists('purchases', 'created_at');
+  const hasChargeId = columnExists('purchases', 'telegram_payment_charge_id');
+  const orderBy = [
+    hasCreatedAt ? 'p.created_at DESC' : null,
+    hasId ? 'p.id DESC' : null,
+    'p.telegram_id DESC'
+  ].filter(Boolean).join(', ');
+
+  return getDb().prepare(`
+    SELECT
+      p.telegram_id AS user_id,
+      ${hasProductId ? 'p.product_id' : "'unknown'"} AS product_id,
+      ${hasAmount ? 'p.amount' : '0'} AS amount,
+      ${hasCurrency ? 'p.currency' : 'NULL'} AS currency,
+      ${hasCreatedAt ? 'p.created_at' : 'NULL'} AS created_at,
+      ${hasChargeId ? 'p.telegram_payment_charge_id' : 'NULL'} AS telegram_payment_charge_id,
+      u.username,
+      u.first_name
+    FROM purchases p
+    LEFT JOIN users u ON u.telegram_id = p.telegram_id
+    ORDER BY ${orderBy}
+    LIMIT ?
+  `).all(safeLimit);
+}
+
+export function getUserAdminInfo(userId) {
+  const user = getDb().prepare(`
+    SELECT
+      u.telegram_id AS user_id,
+      u.first_name,
+      u.username,
+      u.created_at AS user_created_at,
+      u.updated_at AS user_updated_at,
+      p.birth_date,
+      p.birth_time,
+      p.birth_time_unknown,
+      p.birth_city,
+      p.zodiac,
+      p.is_cusp,
+      p.updated_at AS profile_updated_at
+    FROM users u
+    LEFT JOIN profiles p ON p.telegram_id = u.telegram_id
+    WHERE u.telegram_id = ?
+  `).get(userId);
+
+  if (!user) return null;
+
+  const hasPurchases = tableExists('purchases');
+  const hasPurchaseId = hasPurchases && columnExists('purchases', 'id');
+  const hasPurchaseProductId = hasPurchases && columnExists('purchases', 'product_id');
+  const hasPurchaseAmount = hasPurchases && columnExists('purchases', 'amount');
+  const hasPurchaseCurrency = hasPurchases && columnExists('purchases', 'currency');
+  const hasPurchaseCreatedAt = hasPurchases && columnExists('purchases', 'created_at');
+  const hasPurchaseChargeId = hasPurchases && columnExists('purchases', 'telegram_payment_charge_id');
+  const purchaseOrderBy = [
+    hasPurchaseCreatedAt ? 'created_at DESC' : null,
+    hasPurchaseId ? 'id DESC' : null,
+    'telegram_id DESC'
+  ].filter(Boolean).join(', ');
+
+  const purchases = hasPurchases
+    ? getDb().prepare(`
+      SELECT
+        ${hasPurchaseProductId ? 'product_id' : "'unknown'"} AS product_id,
+        ${hasPurchaseAmount ? 'amount' : '0'} AS amount,
+        ${hasPurchaseCurrency ? 'currency' : 'NULL'} AS currency,
+        ${hasPurchaseCreatedAt ? 'created_at' : 'NULL'} AS created_at,
+        ${hasPurchaseChargeId ? 'telegram_payment_charge_id' : 'NULL'} AS telegram_payment_charge_id
+      FROM purchases
+      WHERE telegram_id = ?
+      ORDER BY ${purchaseOrderBy}
+    `).all(userId)
+    : [];
+
+  const consent = tableExists('user_consents')
+    ? getDb().prepare(`
+      SELECT terms_version, privacy_version, accepted_at
+      FROM user_consents
+      WHERE telegram_id = ?
+      ORDER BY accepted_at DESC
+      LIMIT 1
+    `).get(userId) || null
+    : null;
+
+  return {
+    user: {
+      ...user,
+      birth_time_unknown: Boolean(user.birth_time_unknown),
+      is_cusp: Boolean(user.is_cusp),
+      birth_date_display: user.birth_date ? formatDateFromIso(user.birth_date) : null
+    },
+    consent,
+    consentAvailable: tableExists('user_consents'),
+    purchases
+  };
+}
+
 export function recordUserConsent(telegramId, termsVersion, privacyVersion) {
   const now = nowIso();
   getDb().prepare(`
@@ -254,6 +413,26 @@ function safeJson(value) {
   } catch {
     return {};
   }
+}
+
+function getScalar(sql) {
+  const row = getDb().prepare(sql).get();
+  return Number(Object.values(row || { value: 0 })[0] || 0);
+}
+
+function tableExists(tableName) {
+  const row = getDb().prepare(`
+    SELECT name FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+  `).get(tableName);
+  return Boolean(row);
+}
+
+function columnExists(tableName, columnName) {
+  if (!tableExists(tableName)) return false;
+  return getDb().prepare(`PRAGMA table_info(${tableName})`)
+    .all()
+    .some((column) => column.name === columnName);
 }
 
 function nowIso() {

@@ -8,6 +8,7 @@ export function readConfig() {
   return {
     botToken,
     supportUsername: process.env.SUPPORT_USERNAME || '',
-    databasePath: process.env.DATABASE_PATH || './data/astrocode.sqlite'
+    databasePath: process.env.DATABASE_PATH || './data/astrocode.sqlite',
+    adminIds: process.env.ADMIN_IDS || ''
   };
 }
