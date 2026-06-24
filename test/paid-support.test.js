@@ -7,12 +7,22 @@ import {
   getUserConsent,
   hasPurchase,
   initDb,
+  listPurchases,
   recordPurchase,
   recordUserConsent,
+  saveCompatibilityDraft,
+  saveProfile,
   upsertUser
 } from '../src/db.js';
+import {
+  alreadyPurchasedText,
+  handlePreCheckoutQuery,
+  handleSuccessfulPayment,
+  openAlreadyPurchasedProduct,
+  replyProductOfferOrPurchased
+} from '../src/purchaseAccess.js';
 import { paymentConsentKeyboard, productKeyboard } from '../src/keyboards.js';
-import { buildStarsInvoice, parsePaymentPayload } from '../src/payments.js';
+import { buildPaymentPayload, buildStarsInvoice, parsePaymentPayload } from '../src/payments.js';
 import {
   buildFullAstroPortrait,
   buildFullCompatibilityReport,
@@ -23,7 +33,10 @@ import { PRODUCTS } from '../src/products.js';
 import {
   PRIVACY_VERSION,
   TERMS_VERSION,
+  fullAstroSaleText,
+  fullCompatibilitySaleText,
   helpText,
+  personalMeditationSaleText,
   paySupportText,
   paymentConsentText,
   paymentInfoText,
@@ -164,6 +177,126 @@ test('successful payment records purchase and existing purchase can be detected'
   assert.equal(hasPurchase(USER.id, 'astro_full'), true);
 });
 
+test('user without meditation purchase sees price and Stars payment button', async () => {
+  initPaidFlowDb();
+  const ctx = createPaidCtx();
+
+  await replyProductOfferOrPurchased(
+    ctx,
+    PRODUCTS.meditation_personal.id,
+    personalMeditationSaleText(),
+    deliverTestProduct
+  );
+
+  assert.match(allRepliesText(ctx), /Стоимость: 49 Stars/);
+  assert.equal(hasInlineCallback(ctx, 'buy:meditation_personal'), true);
+  assert.equal(ctx.invoices.length, 0);
+});
+
+test('user with meditation purchase gets paid material without repeated payment offer', async () => {
+  initPaidFlowDb();
+  recordPurchase(USER.id, payment('meditation_personal', 'charge-meditation'), PRODUCTS.meditation_personal.id);
+  const ctx = createPaidCtx();
+
+  await replyProductOfferOrPurchased(
+    ctx,
+    PRODUCTS.meditation_personal.id,
+    personalMeditationSaleText(),
+    deliverTestProduct
+  );
+
+  assert.equal(ctx.replies[0].text, alreadyPurchasedText(PRODUCTS.meditation_personal.id));
+  assert.match(allRepliesText(ctx), /Персональная медитация/);
+  assert.equal(hasInlineCallback(ctx, 'buy:meditation_personal'), false);
+  assert.doesNotMatch(allRepliesText(ctx), /Стоимость: 49 Stars/);
+  assert.equal(ctx.invoices.length, 0);
+});
+
+test('user with astro_full purchase gets paid material without repeated payment offer', async () => {
+  initPaidFlowDb();
+  recordPurchase(USER.id, payment('astro_full', 'charge-astro'), PRODUCTS.astro_full.id);
+  const ctx = createPaidCtx();
+
+  await replyProductOfferOrPurchased(
+    ctx,
+    PRODUCTS.astro_full.id,
+    fullAstroSaleText(),
+    deliverTestProduct
+  );
+
+  assert.equal(ctx.replies[0].text, alreadyPurchasedText(PRODUCTS.astro_full.id));
+  assert.match(allRepliesText(ctx), /Твой полный астропортрет/);
+  assert.equal(hasInlineCallback(ctx, 'buy:astro_full'), false);
+  assert.doesNotMatch(allRepliesText(ctx), /Стоимость: 99 Stars/);
+  assert.equal(ctx.invoices.length, 0);
+});
+
+test('user with compatibility_full purchase gets paid material without repeated payment offer', async () => {
+  initPaidFlowDb();
+  recordPurchase(USER.id, payment('compatibility_full', 'charge-compatibility'), PRODUCTS.compatibility_full.id);
+  const ctx = createPaidCtx();
+
+  await replyProductOfferOrPurchased(
+    ctx,
+    PRODUCTS.compatibility_full.id,
+    fullCompatibilitySaleText(),
+    deliverTestProduct
+  );
+
+  assert.equal(ctx.replies[0].text, alreadyPurchasedText(PRODUCTS.compatibility_full.id));
+  assert.match(allRepliesText(ctx), /Полная совместимость/);
+  assert.equal(hasInlineCallback(ctx, 'buy:compatibility_full'), false);
+  assert.doesNotMatch(allRepliesText(ctx), /Стоимость: 149 Stars/);
+  assert.equal(ctx.invoices.length, 0);
+});
+
+test('old payment callback for purchased product does not create invoice and removes button when possible', async () => {
+  initPaidFlowDb();
+  recordPurchase(USER.id, payment('meditation_personal', 'charge-old-button'), PRODUCTS.meditation_personal.id);
+  const ctx = createPaidCtx();
+
+  await openAlreadyPurchasedProduct(
+    ctx,
+    PRODUCTS.meditation_personal.id,
+    deliverTestProduct,
+    { removePaymentButton: true }
+  );
+
+  assert.equal(ctx.invoices.length, 0);
+  assert.deepEqual(ctx.editedReplyMarkups[0], { inline_keyboard: [] });
+  assert.equal(ctx.replies[0].text, alreadyPurchasedText(PRODUCTS.meditation_personal.id));
+  assert.match(allRepliesText(ctx), /Персональная медитация/);
+});
+
+test('pre_checkout_query for already purchased product is rejected', async () => {
+  initPaidFlowDb();
+  recordPurchase(USER.id, payment('meditation_personal', 'charge-precheckout'), PRODUCTS.meditation_personal.id);
+  const ctx = createPaidCtx({
+    preCheckoutPayload: buildPaymentPayload(PRODUCTS.meditation_personal.id, USER.id, 123)
+  });
+
+  await handlePreCheckoutQuery(ctx);
+
+  assert.equal(ctx.preCheckoutAnswers.length, 1);
+  assert.equal(ctx.preCheckoutAnswers[0].ok, false);
+  assert.match(ctx.preCheckoutAnswers[0].extra.error_message, /Повторная оплата не нужна/);
+});
+
+test('duplicate successful_payment opens material without creating duplicate purchase', async () => {
+  initPaidFlowDb();
+  recordPurchase(USER.id, payment('meditation_personal', 'charge-original'), PRODUCTS.meditation_personal.id);
+  const ctx = createPaidCtx({
+    successfulPayment: payment('meditation_personal', 'charge-duplicate')
+  });
+
+  await handleSuccessfulPayment(ctx, deliverTestProduct);
+
+  assert.equal(listPurchases(USER.id).length, 1);
+  assert.equal(ctx.replies[0].text, alreadyPurchasedText(PRODUCTS.meditation_personal.id));
+  assert.match(allRepliesText(ctx), /Персональная медитация/);
+  assert.doesNotMatch(allRepliesText(ctx), /Оплата прошла/);
+});
+
 test('paid astro portrait contains full paid sections and no placeholder', () => {
   const messages = buildFullAstroPortrait(TAURUS_PROFILE);
   const text = messages.join('\n\n');
@@ -219,4 +352,90 @@ test('successful payment message opens real paid material tone', () => {
 function initTestDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'astrocode-bot-test-'));
   initDb(path.join(tmpDir, 'astrocode.sqlite'));
+}
+
+function initPaidFlowDb() {
+  initTestDb();
+  upsertUser(USER);
+  saveProfile(USER.id, TAURUS_PROFILE);
+  saveCompatibilityDraft(USER.id, TAURUS_AQUARIUS_DRAFT);
+}
+
+function payment(productId, chargeId) {
+  const product = PRODUCTS[productId];
+
+  return {
+    invoice_payload: JSON.stringify({ p: productId, u: USER.id, t: Date.now() }),
+    telegram_payment_charge_id: chargeId,
+    total_amount: product.stars,
+    currency: 'XTR'
+  };
+}
+
+function createPaidCtx({ successfulPayment = null, preCheckoutPayload = null } = {}) {
+  const replies = [];
+  const invoices = [];
+  const editedReplyMarkups = [];
+  const preCheckoutAnswers = [];
+
+  return {
+    from: USER,
+    chat: { id: USER.id },
+    message: {
+      text: '',
+      successful_payment: successfulPayment
+    },
+    preCheckoutQuery: preCheckoutPayload
+      ? {
+          id: 'pre-checkout-1',
+          from: USER,
+          invoice_payload: preCheckoutPayload
+        }
+      : undefined,
+    replies,
+    invoices,
+    editedReplyMarkups,
+    preCheckoutAnswers,
+    reply: async (text, extra) => {
+      replies.push({ text, extra });
+      return { text, extra };
+    },
+    editMessageReplyMarkup: async (markup) => {
+      editedReplyMarkups.push(markup);
+      return true;
+    },
+    telegram: {
+      callApi: async (method, payload) => {
+        if (method === 'sendInvoice') invoices.push(payload);
+        return payload;
+      },
+      answerPreCheckoutQuery: async (id, ok, extra = {}) => {
+        preCheckoutAnswers.push({ id, ok, extra });
+        return true;
+      }
+    }
+  };
+}
+
+async function deliverTestProduct(ctx, productId) {
+  const messages = {
+    [PRODUCTS.astro_full.id]: buildFullAstroPortrait(TAURUS_PROFILE),
+    [PRODUCTS.compatibility_full.id]: buildFullCompatibilityReport(TAURUS_AQUARIUS_DRAFT),
+    [PRODUCTS.meditation_personal.id]: buildPersonalMeditation(TAURUS_PROFILE)
+  }[productId] || [];
+
+  for (const message of messages) {
+    await ctx.reply(message);
+  }
+}
+
+function allRepliesText(ctx) {
+  return ctx.replies.map((reply) => reply.text).join('\n\n');
+}
+
+function hasInlineCallback(ctx, callbackData) {
+  return ctx.replies.some((reply) => {
+    const rows = reply.extra?.reply_markup?.inline_keyboard || [];
+    return rows.flat().some((button) => button.callback_data === callbackData);
+  });
 }

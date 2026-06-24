@@ -8,14 +8,19 @@ import {
   hasPurchase,
   listPurchases,
   recordUserConsent,
-  recordPurchase,
   saveCompatibilityDraft,
   saveProfile,
   setState,
   upsertUser
 } from './db.js';
 import { PRODUCTS, getProduct } from './products.js';
-import { buildStarsInvoice, parsePaymentPayload } from './payments.js';
+import {
+  handlePreCheckoutQuery,
+  handleSuccessfulPayment,
+  openAlreadyPurchasedProduct,
+  replyProductOfferOrPurchased,
+  sendProductInvoice
+} from './purchaseAccess.js';
 import {
   editProfileKeyboard,
   mainMenuKeyboard,
@@ -51,8 +56,7 @@ import {
 import {
   buildFullAstroPortrait,
   buildFullCompatibilityReport,
-  buildPersonalMeditation,
-  paymentSuccessText
+  buildPersonalMeditation
 } from './paidContent.js';
 import { registerAdminCommands } from './admin.js';
 
@@ -126,11 +130,11 @@ export function createBot(config) {
   });
 
   bot.on('pre_checkout_query', async (ctx) => {
-    await ctx.telegram.answerPreCheckoutQuery(ctx.preCheckoutQuery.id, true);
+    await handlePreCheckoutQuery(ctx);
   });
 
   bot.on('successful_payment', async (ctx) => {
-    await handleSuccessfulPayment(ctx);
+    await handleSuccessfulPayment(ctx, deliverProduct);
   });
 
   bot.on('text', async (ctx) => {
@@ -290,7 +294,7 @@ async function handleBirthCity(ctx, data) {
   clearState(ctx.from.id);
 
   await ctx.reply(generateMiniProfile(profile));
-  await ctx.reply(miniProfileUpsellText(), productKeyboard(PRODUCTS.astro_full.id));
+  await replyProductOfferOrPurchased(ctx, PRODUCTS.astro_full.id, miniProfileUpsellText(), deliverProduct);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
 
@@ -483,6 +487,11 @@ async function handleCompatibilitySecondDate(ctx, data) {
   clearState(ctx.from.id);
 
   await ctx.reply(generateMiniCompatibility(data.first_sign, secondSign));
+  if (hasPurchase(ctx.from.id, PRODUCTS.compatibility_full.id)) {
+    await openAlreadyPurchasedProduct(ctx, PRODUCTS.compatibility_full.id, deliverProduct);
+    return ctx.reply(MAIN_MENU, mainMenuKeyboard());
+  }
+
   await ctx.reply(`Если хочется посмотреть на пару чуть глубже, можно открыть полный разбор совместимости 🌙
 
 В мини-разборе я показала только общий ритм пары. Полная совместимость мягче раскрывает, как вы сближаетесь, где можете не слышать друг друга и что помогает отношениям становиться спокойнее.
@@ -491,46 +500,33 @@ async function handleCompatibilitySecondDate(ctx, data) {
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
 
-async function openMeditation(ctx) {
+export async function openMeditation(ctx) {
   await ctx.reply(meditationOfDayText());
-  await ctx.reply(personalMeditationSaleText(), productKeyboard(PRODUCTS.meditation_personal.id));
+  await replyProductOfferOrPurchased(ctx, PRODUCTS.meditation_personal.id, personalMeditationSaleText(), deliverProduct);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
 
-async function openFullAstro(ctx) {
-  if (hasPurchase(ctx.from.id, PRODUCTS.astro_full.id)) {
-    return deliverProduct(ctx, PRODUCTS.astro_full.id);
-  }
-
-  await ctx.reply(fullAstroSaleText(), productKeyboard(PRODUCTS.astro_full.id));
+export async function openFullAstro(ctx) {
+  await replyProductOfferOrPurchased(ctx, PRODUCTS.astro_full.id, fullAstroSaleText(), deliverProduct);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
 
-async function openFullCompatibility(ctx) {
-  if (hasPurchase(ctx.from.id, PRODUCTS.compatibility_full.id)) {
-    return deliverProduct(ctx, PRODUCTS.compatibility_full.id);
-  }
-
-  await ctx.reply(fullCompatibilitySaleText(), productKeyboard(PRODUCTS.compatibility_full.id));
+export async function openFullCompatibility(ctx) {
+  await replyProductOfferOrPurchased(ctx, PRODUCTS.compatibility_full.id, fullCompatibilitySaleText(), deliverProduct);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
 
-async function openPersonalMeditation(ctx) {
-  if (hasPurchase(ctx.from.id, PRODUCTS.meditation_personal.id)) {
-    return deliverProduct(ctx, PRODUCTS.meditation_personal.id);
-  }
-
-  await ctx.reply(personalMeditationSaleText(), productKeyboard(PRODUCTS.meditation_personal.id));
+export async function openPersonalMeditation(ctx) {
+  await replyProductOfferOrPurchased(ctx, PRODUCTS.meditation_personal.id, personalMeditationSaleText(), deliverProduct);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
 
-async function buyProduct(ctx, productId) {
+export async function buyProduct(ctx, productId) {
   const product = getProduct(productId);
   if (!product) return ctx.reply('Не нашла такой раздел. Давай вернёмся в меню 🌙', mainMenuKeyboard());
 
   if (hasPurchase(ctx.from.id, productId)) {
-    await ctx.reply('Этот раздел уже открыт для тебя 🌙');
-    return deliverProduct(ctx, productId);
+    return openAlreadyPurchasedProduct(ctx, productId, deliverProduct, { removePaymentButton: true });
   }
 
   if (requiresProfile(productId) && !getProfile(ctx.from.id)) {
@@ -546,13 +542,12 @@ async function buyProduct(ctx, productId) {
   return ctx.reply(paymentConsentText(), paymentConsentKeyboard(productId));
 }
 
-async function confirmProductPayment(ctx, productId) {
+export async function confirmProductPayment(ctx, productId) {
   const product = getProduct(productId);
   if (!product) return ctx.reply('Не нашла такой раздел. Давай вернёмся в меню 🌙', mainMenuKeyboard());
 
   if (hasPurchase(ctx.from.id, productId)) {
-    await ctx.reply('Этот раздел уже открыт для тебя 🌙');
-    return deliverProduct(ctx, productId);
+    return openAlreadyPurchasedProduct(ctx, productId, deliverProduct, { removePaymentButton: true });
   }
 
   if (requiresProfile(productId) && !getProfile(ctx.from.id)) {
@@ -567,32 +562,7 @@ async function confirmProductPayment(ctx, productId) {
 
   recordUserConsent(ctx.from.id, TERMS_VERSION, PRIVACY_VERSION);
 
-  return ctx.telegram.callApi('sendInvoice', buildStarsInvoice({
-    chatId: ctx.chat.id,
-    product,
-    telegramId: ctx.from.id
-  }));
-}
-
-async function handleSuccessfulPayment(ctx) {
-  const payment = ctx.message.successful_payment;
-  const payload = parsePaymentPayload(payment.invoice_payload);
-  const product = getProduct(payload?.p);
-
-  if (!product) {
-    await ctx.reply('Платёж прошёл, но я не смогла определить, какой раздел открыть. Напиши, пожалуйста, в /paysupport — спокойно разберёмся.');
-    return;
-  }
-
-  if (payment.currency !== 'XTR' || payment.total_amount !== product.stars) {
-    await ctx.reply('Платёж получен, но сумма выглядит необычно. Напиши, пожалуйста, в /paysupport — я помогу проверить покупку.');
-    return;
-  }
-
-  recordPurchase(ctx.from.id, payment, product.id);
-  await ctx.reply(paymentSuccessText(product));
-  await deliverProduct(ctx, product.id);
-  return ctx.reply(MAIN_MENU, mainMenuKeyboard());
+  return sendProductInvoice(ctx, product);
 }
 
 async function deliverProduct(ctx, productId) {

@@ -187,6 +187,10 @@ export function getCompatibilityDraft(telegramId) {
 }
 
 export function recordPurchase(telegramId, payment, productId) {
+  if (hasPurchase(telegramId, productId)) {
+    return false;
+  }
+
   const now = nowIso();
   getDb().prepare(`
     INSERT OR IGNORE INTO purchases (
@@ -201,6 +205,8 @@ export function recordPurchase(telegramId, payment, productId) {
     payment.currency,
     now
   );
+
+  return hasPurchase(telegramId, productId);
 }
 
 export function hasPurchase(telegramId, productId) {
