@@ -13,6 +13,7 @@ await bot.telegram.setMyCommands([
   { command: 'profile', description: 'мой мини-профиль' },
   { command: 'compatibility', description: 'совместимость' },
   { command: 'meditation', description: 'медитация дня' },
+  { command: 'channel', description: 'канал проекта' },
   { command: 'help', description: 'меню и помощь' },
   { command: 'paysupport', description: 'поддержка по оплатам' }
 ]);

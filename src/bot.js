@@ -46,6 +46,14 @@ import {
   starsHelpText,
   termsText
 } from './texts.js';
+import {
+  channelKeyboard,
+  channelText,
+  compatibilityChannelCtaText,
+  meditationChannelCtaText,
+  miniProfileChannelCtaText,
+  paidContentChannelCtaText
+} from './channel.js';
 import { parseBirthDate, parseBirthTime, normalizeText } from './utils/dates.js';
 import { getZodiacFromIso, isCuspDate } from './astro/zodiac.js';
 import {
@@ -89,6 +97,7 @@ export function createBot(config) {
   bot.command('profile', (ctx) => openProfile(ctx));
   bot.command('compatibility', (ctx) => startCompatibilityFlow(ctx));
   bot.command('meditation', (ctx) => openMeditation(ctx));
+  bot.command('channel', (ctx) => showChannel(ctx));
   bot.command('help', (ctx) => showHelp(ctx));
   bot.command('paysupport', (ctx) => ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard()));
   bot.command('support', (ctx) => ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard()));
@@ -159,6 +168,7 @@ async function handleText(ctx, config) {
   if (normalized === '/paysupport' || normalized === '/support' || normalized === '/suppport') {
     return ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard());
   }
+  if (isChannelText(normalized)) return showChannel(ctx);
   if (normalized === '/help') return showHelp(ctx);
 
   const state = getState(ctx.from.id);
@@ -294,11 +304,14 @@ async function handleBirthCity(ctx, data) {
   clearState(ctx.from.id);
 
   await ctx.reply(generateMiniProfile(profile));
+  if (!hasPurchase(ctx.from.id, PRODUCTS.astro_full.id)) {
+    await sendChannelCta(ctx, miniProfileChannelCtaText(), 'Канал проекта 🌙');
+  }
   await replyProductOfferOrPurchased(ctx, PRODUCTS.astro_full.id, miniProfileUpsellText(), deliverProduct);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
 
-async function openProfile(ctx) {
+export async function openProfile(ctx) {
   const profile = getProfile(ctx.from.id);
   if (!profile) return startProfileFlow(ctx);
 
@@ -308,7 +321,8 @@ async function openProfile(ctx) {
     ? `\n\nОткрытые покупки:\n${purchases.map((item) => `— ${getProduct(item.product_id)?.title || item.product_id}`).join('\n')}`
     : '';
 
-  return ctx.reply(`${generateSavedProfile(profile)}${purchaseBlock}`, profileActionsKeyboard());
+  await ctx.reply(`${generateSavedProfile(profile)}${purchaseBlock}`, profileActionsKeyboard());
+  return sendChannelCta(ctx, miniProfileChannelCtaText(), 'Канал проекта 🌙');
 }
 
 async function handleProfileAction(ctx, normalized) {
@@ -492,6 +506,7 @@ async function handleCompatibilitySecondDate(ctx, data) {
     return ctx.reply(MAIN_MENU, mainMenuKeyboard());
   }
 
+  await sendChannelCta(ctx, compatibilityChannelCtaText(), 'Канал проекта 🌙');
   await ctx.reply(`Если хочется посмотреть на пару чуть глубже, можно открыть полный разбор совместимости 🌙
 
 В мини-разборе я показала только общий ритм пары. Полная совместимость мягче раскрывает, как вы сближаетесь, где можете не слышать друг друга и что помогает отношениям становиться спокойнее.
@@ -501,7 +516,11 @@ async function handleCompatibilitySecondDate(ctx, data) {
 }
 
 export async function openMeditation(ctx) {
+  const ownsPersonalMeditation = hasPurchase(ctx.from.id, PRODUCTS.meditation_personal.id);
   await ctx.reply(meditationOfDayText());
+  if (!ownsPersonalMeditation) {
+    await sendChannelCta(ctx, meditationChannelCtaText(), 'Заглянуть в канал 🌙');
+  }
   await replyProductOfferOrPurchased(ctx, PRODUCTS.meditation_personal.id, personalMeditationSaleText(), deliverProduct);
   return ctx.reply(MAIN_MENU, mainMenuKeyboard());
 }
@@ -569,7 +588,7 @@ async function deliverProduct(ctx, productId) {
   if (productId === PRODUCTS.astro_full.id) {
     const profile = getProfile(ctx.from.id);
     if (!profile) return startProfileFlow(ctx);
-    return replyMessages(ctx, buildFullAstroPortrait(profile));
+    return replyPaidMessages(ctx, buildFullAstroPortrait(profile));
   }
 
   if (productId === PRODUCTS.compatibility_full.id) {
@@ -578,13 +597,13 @@ async function deliverProduct(ctx, productId) {
       await ctx.reply('Для полной совместимости сначала нужны две даты рождения. Давай введём их заново — так я смогу открыть не пустой шаблон, а материал именно для вашей пары ❤️');
       return startCompatibilityFlow(ctx);
     }
-    return replyMessages(ctx, buildFullCompatibilityReport(draft));
+    return replyPaidMessages(ctx, buildFullCompatibilityReport(draft));
   }
 
   if (productId === PRODUCTS.meditation_personal.id) {
     const profile = getProfile(ctx.from.id);
     if (!profile) return startProfileFlow(ctx);
-    return replyMessages(ctx, buildPersonalMeditation(profile));
+    return replyPaidMessages(ctx, buildPersonalMeditation(profile));
   }
 
   return ctx.reply('Не нашла этот раздел. Напиши /help — вернёмся в меню 🌙');
@@ -594,6 +613,19 @@ async function replyMessages(ctx, messages) {
   for (const message of messages) {
     await ctx.reply(message);
   }
+}
+
+async function replyPaidMessages(ctx, messages) {
+  await replyMessages(ctx, messages);
+  return sendChannelCta(ctx, paidContentChannelCtaText(), 'Канал проекта 🌙');
+}
+
+export function showChannel(ctx) {
+  return ctx.reply(channelText(), channelKeyboard());
+}
+
+function sendChannelCta(ctx, text, label) {
+  return ctx.reply(text, channelKeyboard(label));
 }
 
 function showHelp(ctx) {
@@ -654,6 +686,10 @@ function isPersonalMeditationText(text) {
 
 function isPaymentText(text) {
   return text === '5' || text.includes('оплат') || text.includes('поддерж') || text.includes('paysupport');
+}
+
+function isChannelText(text) {
+  return text === '/channel' || text === '6' || text.includes('канал проекта') || text.includes('канал');
 }
 
 function isHelpText(text) {

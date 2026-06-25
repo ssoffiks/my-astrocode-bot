@@ -6,7 +6,7 @@
 
 - анкета мини-профиля;
 - сохранение данных пользователя в SQLite;
-- команды `/start`, `/profile`, `/compatibility`, `/meditation`, `/help`, `/terms`, `/privacy`, `/support`, `/paysupport`;
+- команды `/start`, `/profile`, `/compatibility`, `/meditation`, `/channel`, `/help`, `/terms`, `/privacy`, `/support`, `/paysupport`;
 - редактирование и удаление профиля;
 - базовая совместимость по двум датам;
 - медитация дня;
@@ -52,6 +52,7 @@ start - собрать мини-астропрофиль
 profile - мой мини-профиль
 compatibility - совместимость
 meditation - медитация дня
+channel - канал проекта
 help - меню и помощь
 myid - узнать свой Telegram ID
 paysupport - поддержка по оплатам
