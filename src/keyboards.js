@@ -4,10 +4,44 @@ export function mainMenuKeyboard() {
       resize_keyboard: true,
       keyboard: [
         ['🌙 Мой мини-профиль'],
+        ['🌙 Узнать свою Луну'],
         ['❤️ Совместимость', '🧘 Медитация дня'],
         ['🌌 Полный астропортрет'],
         ['🌙 Канал проекта'],
         ['💳 Оплата и поддержка']
+      ]
+    }
+  };
+}
+
+export function moonStartKeyboard() {
+  return {
+    reply_markup: {
+      resize_keyboard: true,
+      one_time_keyboard: true,
+      keyboard: [['Начать расчёт'], ['🏠 В главное меню']]
+    }
+  };
+}
+
+export function moonTimeKeyboard() {
+  return {
+    reply_markup: {
+      resize_keyboard: true,
+      one_time_keyboard: true,
+      keyboard: [['Не знаю время'], ['🏠 В главное меню']]
+    }
+  };
+}
+
+export function moonResultKeyboard() {
+  return {
+    reply_markup: {
+      resize_keyboard: true,
+      keyboard: [
+        ['🔁 Рассчитать заново'],
+        ['🪐 Что значит Луна в карте?'],
+        ['🏠 В главное меню']
       ]
     }
   };

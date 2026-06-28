@@ -9,6 +9,7 @@ import {
   listPurchases,
   recordUserConsent,
   saveCompatibilityDraft,
+  saveMoonProfile,
   saveProfile,
   setState,
   upsertUser
@@ -24,6 +25,9 @@ import {
 import {
   editProfileKeyboard,
   mainMenuKeyboard,
+  moonResultKeyboard,
+  moonStartKeyboard,
+  moonTimeKeyboard,
   paymentConsentKeyboard,
   productKeyboard,
   profileActionsKeyboard,
@@ -55,6 +59,28 @@ import {
   paidContentChannelCtaText
 } from './channel.js';
 import { parseBirthDate, parseBirthTime, normalizeText } from './utils/dates.js';
+import {
+  calculateMoon,
+  parseMoonBirthDate,
+  parseMoonBirthTime,
+  parseUtcOffset,
+  resolveCityTimeZone
+} from './astro/moon.js';
+import {
+  MOON_MAIN_MENU_BUTTON,
+  MOON_MEANING_BUTTON,
+  MOON_RECALCULATE_BUTTON,
+  MOON_START_BUTTON,
+  MOON_UNKNOWN_TIME_BUTTON,
+  moonCityPromptText,
+  moonDatePromptText,
+  moonIntroText,
+  moonMeaningText,
+  moonResultText,
+  moonTechnicalErrorText,
+  moonTimePromptText,
+  moonUtcOffsetPromptText
+} from './moonTexts.js';
 import { getZodiacFromIso, isCuspDate } from './astro/zodiac.js';
 import {
   generateMiniCompatibility,
@@ -80,7 +106,12 @@ const STATES = {
   AWAIT_EDIT_BIRTH_TIME: 'await_edit_birth_time',
   AWAIT_EDIT_CITY: 'await_edit_city',
   COMPAT_AWAIT_FIRST_DATE: 'compat_await_first_date',
-  COMPAT_AWAIT_SECOND_DATE: 'compat_await_second_date'
+  COMPAT_AWAIT_SECOND_DATE: 'compat_await_second_date',
+  MOON_AWAIT_START: 'moon_await_start',
+  MOON_AWAIT_BIRTH_DATE: 'moon_await_birth_date',
+  MOON_AWAIT_BIRTH_TIME: 'moon_await_birth_time',
+  MOON_AWAIT_CITY: 'moon_await_city',
+  MOON_AWAIT_UTC_OFFSET: 'moon_await_utc_offset'
 };
 
 export function createBot(config) {
@@ -97,6 +128,7 @@ export function createBot(config) {
   bot.command('profile', (ctx) => openProfile(ctx));
   bot.command('compatibility', (ctx) => startCompatibilityFlow(ctx));
   bot.command('meditation', (ctx) => openMeditation(ctx));
+  bot.command('moon', (ctx) => openMoonIntro(ctx));
   bot.command('channel', (ctx) => showChannel(ctx));
   bot.command('help', (ctx) => showHelp(ctx));
   bot.command('paysupport', (ctx) => ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard()));
@@ -158,7 +190,7 @@ export function createBot(config) {
   return bot;
 }
 
-async function handleText(ctx, config) {
+export async function handleText(ctx, config) {
   const text = ctx.message.text;
   const normalized = normalizeText(text);
 
@@ -168,6 +200,14 @@ async function handleText(ctx, config) {
   if (normalized === '/paysupport' || normalized === '/support' || normalized === '/suppport') {
     return ctx.reply(paySupportText(config.supportUsername), mainMenuKeyboard());
   }
+  if (isMainMenuReturnText(normalized)) {
+    clearState(ctx.from.id);
+    return ctx.reply(MAIN_MENU, mainMenuKeyboard());
+  }
+  if (isMoonMeaningText(normalized)) return ctx.reply(moonMeaningText(), moonResultKeyboard());
+  if (isMoonStartButtonText(normalized)) return askMoonBirthDate(ctx);
+  if (isMoonRestartText(normalized)) return openMoonIntro(ctx);
+  if (isMoonText(normalized)) return openMoonIntro(ctx);
   if (isChannelText(normalized)) return showChannel(ctx);
   if (normalized === '/help') return showHelp(ctx);
 
@@ -216,9 +256,132 @@ async function handleStatefulText(ctx, currentState, normalized) {
       return handleCompatibilityFirstDate(ctx);
     case STATES.COMPAT_AWAIT_SECOND_DATE:
       return handleCompatibilitySecondDate(ctx, currentState.data);
+    case STATES.MOON_AWAIT_START:
+      return handleMoonStart(ctx, normalized);
+    case STATES.MOON_AWAIT_BIRTH_DATE:
+      return handleMoonBirthDate(ctx, currentState.data);
+    case STATES.MOON_AWAIT_BIRTH_TIME:
+      return handleMoonBirthTime(ctx, currentState.data, normalized);
+    case STATES.MOON_AWAIT_CITY:
+      return handleMoonCity(ctx, currentState.data);
+    case STATES.MOON_AWAIT_UTC_OFFSET:
+      return handleMoonUtcOffset(ctx, currentState.data);
     default:
       clearState(ctx.from.id);
       return ctx.reply(MAIN_MENU, mainMenuKeyboard());
+  }
+}
+
+export async function openMoonIntro(ctx) {
+  setState(ctx.from.id, STATES.MOON_AWAIT_START, {});
+  return ctx.reply(moonIntroText(), moonStartKeyboard());
+}
+
+async function handleMoonStart(ctx, normalized) {
+  if (isMoonStartButtonText(normalized)) return askMoonBirthDate(ctx);
+
+  return ctx.reply('Нажми «Начать расчёт», и я спокойно соберу данные для Луны 🌙', moonStartKeyboard());
+}
+
+async function askMoonBirthDate(ctx) {
+  setState(ctx.from.id, STATES.MOON_AWAIT_BIRTH_DATE, {});
+  return ctx.reply(moonDatePromptText(), { reply_markup: { remove_keyboard: true } });
+}
+
+async function handleMoonBirthDate(ctx, data) {
+  const parsed = parseMoonBirthDate(ctx.message.text);
+  if (!parsed.ok) return ctx.reply(parsed.error);
+
+  setState(ctx.from.id, STATES.MOON_AWAIT_BIRTH_TIME, {
+    ...data,
+    birth_date: parsed.value.iso,
+    birth_date_display: parsed.value.display
+  });
+
+  return ctx.reply(moonTimePromptText(), moonTimeKeyboard());
+}
+
+async function handleMoonBirthTime(ctx, data, normalized) {
+  if (isMoonUnknownTimeText(normalized)) {
+    setState(ctx.from.id, STATES.MOON_AWAIT_CITY, {
+      ...data,
+      birth_time: '12:00',
+      time_unknown: true
+    });
+
+    return ctx.reply(moonCityPromptText(), { reply_markup: { remove_keyboard: true } });
+  }
+
+  const parsed = parseMoonBirthTime(ctx.message.text);
+  if (!parsed.ok) return ctx.reply(parsed.error, moonTimeKeyboard());
+
+  setState(ctx.from.id, STATES.MOON_AWAIT_CITY, {
+    ...data,
+    birth_time: parsed.value,
+    time_unknown: false
+  });
+
+  return ctx.reply(moonCityPromptText(), { reply_markup: { remove_keyboard: true } });
+}
+
+async function handleMoonCity(ctx, data) {
+  const city = String(ctx.message.text || '').trim();
+  if (city.length < 2 || /^\d+$/.test(city)) {
+    return ctx.reply('Введи город рождения текстом, пожалуйста. Например: Москва');
+  }
+
+  const resolved = resolveCityTimeZone(city);
+  const nextData = {
+    ...data,
+    birth_city: city,
+    time_zone: resolved?.timeZone || null
+  };
+
+  if (!resolved) {
+    setState(ctx.from.id, STATES.MOON_AWAIT_UTC_OFFSET, nextData);
+    return ctx.reply(moonUtcOffsetPromptText());
+  }
+
+  return finishMoonCalculation(ctx, nextData);
+}
+
+async function handleMoonUtcOffset(ctx, data) {
+  const parsed = parseUtcOffset(ctx.message.text);
+  if (!parsed.ok) return ctx.reply(parsed.error);
+
+  return finishMoonCalculation(ctx, {
+    ...data,
+    utc_offset_minutes: parsed.value
+  });
+}
+
+async function finishMoonCalculation(ctx, data) {
+  try {
+    const calculation = calculateMoon({
+      birthDate: data.birth_date,
+      birthTime: data.birth_time,
+      timeUnknown: data.time_unknown,
+      timeZone: data.time_zone,
+      utcOffsetMinutes: data.utc_offset_minutes
+    });
+
+    saveMoonProfile(ctx.from.id, {
+      birth_date: data.birth_date,
+      birth_time: data.time_unknown ? null : data.birth_time,
+      time_unknown: data.time_unknown,
+      birth_city: data.birth_city,
+      time_zone: data.time_zone,
+      utc_offset_minutes: calculation.utcOffsetMinutes,
+      moon_sign: calculation.sign,
+      moon_longitude: calculation.longitude
+    });
+
+    clearState(ctx.from.id);
+    return ctx.reply(moonResultText(calculation), moonResultKeyboard());
+  } catch (error) {
+    console.error('Moon calculation error', error);
+    clearState(ctx.from.id);
+    return ctx.reply(moonTechnicalErrorText(), moonResultKeyboard());
   }
 }
 
@@ -690,6 +853,30 @@ function isPaymentText(text) {
 
 function isChannelText(text) {
   return text === '/channel' || text === '6' || text.includes('канал проекта') || text.includes('канал');
+}
+
+function isMoonText(text) {
+  return text === '/moon' || text === '7' || text.includes('узнать свою луну') || text === 'луна';
+}
+
+function isMoonStartButtonText(text) {
+  return text === normalizeText(MOON_START_BUTTON);
+}
+
+function isMoonRestartText(text) {
+  return text === normalizeText(MOON_RECALCULATE_BUTTON) || text.includes('рассчитать заново');
+}
+
+function isMoonMeaningText(text) {
+  return text === normalizeText(MOON_MEANING_BUTTON) || text.includes('что значит луна');
+}
+
+function isMoonUnknownTimeText(text) {
+  return text === normalizeText(MOON_UNKNOWN_TIME_BUTTON) || text.includes('не знаю время');
+}
+
+function isMainMenuReturnText(text) {
+  return text === normalizeText(MOON_MAIN_MENU_BUTTON) || text.includes('главное меню') || text.includes('вернуться в меню');
 }
 
 function isHelpText(text) {

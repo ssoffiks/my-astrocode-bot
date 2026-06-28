@@ -52,6 +52,20 @@ export function initDb(databasePath) {
       FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS moon_profiles (
+      telegram_id INTEGER PRIMARY KEY,
+      birth_date TEXT NOT NULL,
+      birth_time TEXT,
+      time_unknown INTEGER NOT NULL DEFAULT 0,
+      birth_city TEXT NOT NULL,
+      time_zone TEXT,
+      utc_offset_minutes INTEGER NOT NULL,
+      moon_sign TEXT NOT NULL,
+      moon_longitude REAL NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS purchases (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       telegram_id INTEGER NOT NULL,
@@ -184,6 +198,58 @@ export function saveCompatibilityDraft(telegramId, draft) {
 
 export function getCompatibilityDraft(telegramId) {
   return getDb().prepare('SELECT * FROM compatibility_drafts WHERE telegram_id = ?').get(telegramId) || null;
+}
+
+export function saveMoonProfile(telegramId, moonProfile) {
+  const now = nowIso();
+  getDb().prepare(`
+    INSERT INTO moon_profiles (
+      telegram_id,
+      birth_date,
+      birth_time,
+      time_unknown,
+      birth_city,
+      time_zone,
+      utc_offset_minutes,
+      moon_sign,
+      moon_longitude,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(telegram_id) DO UPDATE SET
+      birth_date = excluded.birth_date,
+      birth_time = excluded.birth_time,
+      time_unknown = excluded.time_unknown,
+      birth_city = excluded.birth_city,
+      time_zone = excluded.time_zone,
+      utc_offset_minutes = excluded.utc_offset_minutes,
+      moon_sign = excluded.moon_sign,
+      moon_longitude = excluded.moon_longitude,
+      updated_at = excluded.updated_at
+  `).run(
+    telegramId,
+    moonProfile.birth_date,
+    moonProfile.birth_time || null,
+    moonProfile.time_unknown ? 1 : 0,
+    moonProfile.birth_city,
+    moonProfile.time_zone || null,
+    moonProfile.utc_offset_minutes,
+    moonProfile.moon_sign,
+    moonProfile.moon_longitude,
+    now
+  );
+
+  return getMoonProfile(telegramId);
+}
+
+export function getMoonProfile(telegramId) {
+  const row = getDb().prepare('SELECT * FROM moon_profiles WHERE telegram_id = ?').get(telegramId);
+  return row
+    ? {
+        ...row,
+        time_unknown: Boolean(row.time_unknown),
+        birth_date_display: formatDateFromIso(row.birth_date)
+      }
+    : null;
 }
 
 export function recordPurchase(telegramId, payment, productId) {
